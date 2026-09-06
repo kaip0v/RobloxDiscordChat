@@ -1,0 +1,261 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600&display=swap');
+
+body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent !important;
+    overflow: hidden;
+    font-family: 'Montserrat', Arial, sans-serif;
+    color: #ffffff;
+}
+
+.app-wrapper {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start; 
+}
+
+.tabs-container {
+    width: 100%;
+    height: 40px; 
+    display: none; 
+    background-color: rgba(0, 0, 0, 0.8);
+    border-radius: 6px 6px 0 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    opacity: 0; 
+    transition: opacity 0.3s ease; 
+}
+
+.app-wrapper.has-tabs .tabs-container {
+    display: flex; 
+}
+
+.app-wrapper.state-interactive .tabs-container {
+    opacity: 1; 
+}
+
+.tab {
+    flex: 1;
+    text-align: center;
+    padding: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    transition: 0.2s;
+}
+.tab:hover { color: #ffffff; }
+.tab.active {
+    color: #ffffff;
+    border-bottom: 2px solid #ffffff;
+}
+
+.chats-wrapper {
+    width: 100%;
+    height: 331px; 
+    margin-bottom: 5px;
+    background-color: transparent;
+    border-radius: 6px; 
+    transition: height 0.3s ease, background-color 0.3s ease;
+}
+
+.app-wrapper.has-tabs .chats-wrapper {
+    height: 291px; 
+}
+.app-wrapper.state-interactive .chats-wrapper { 
+    background-color: rgba(0, 0, 0, 0.4); 
+}
+
+.side-controls {
+    position: absolute;
+    right: 10px; 
+    top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease, top 0.3s ease; 
+}
+.app-wrapper.state-interactive .side-controls {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.app-wrapper.has-tabs .side-controls {
+    top: 50px; 
+}
+
+.control-btn {
+    width: 26px;
+    height: 26px;
+    background-color: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+    cursor: pointer;
+    position: relative; /* Необходимо для работы тултипов */
+    transition: 0.2s;
+}
+
+/* === Кастомные подсказки (Тултипы) === */
+.control-btn::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    right: calc(100% + 10px); /* Появляются слева от кнопки */
+    background-color: rgba(0, 0, 0, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(5px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.control-btn:hover::after {
+    opacity: 1;
+    transform: translateX(0);
+}
+/* ===================================== */
+
+.control-btn:hover { background-color: rgba(255, 255, 255, 0.2); }
+.control-btn#btn-close:hover { background-color: #ff3b3b; border-color: #ff3b3b; }
+
+.error-toast {
+    position: absolute;
+    right: 35px;
+    top: 70px;
+    background: #ff3b3b;
+    color: #fff;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+.error-toast.show { opacity: 1; }
+
+.chat-container {
+    width: 100%;
+    height: 100%;
+    padding: 10px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.chat-container::-webkit-scrollbar { width: 6px; }
+.chat-container::-webkit-scrollbar-track { background: transparent; }
+.chat-container::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; transition: 0.3s ease; }
+.app-wrapper.state-interactive .chat-container::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); }
+
+.message {
+    margin-bottom: 2px;
+    font-size: 15px;
+    line-height: 1.2;
+    word-wrap: break-word;
+    text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 2px 2px 2px rgba(0,0,0,0.8);
+    flex-shrink: 0;
+}
+
+.message.mentioned-message {
+    background-color: rgba(250, 166, 26, 0.15); 
+    border-left: 3px solid #faa61a; 
+    padding-left: 6px; 
+    margin-left: -9px; 
+    border-radius: 0 4px 4px 0;
+}
+
+.mention {
+    background-color: rgba(88, 101, 242, 0.4); 
+    color: #e0e5ff; 
+    border-radius: 4px; 
+    padding: 1px 4px;
+    font-weight: 600;
+}
+
+.author { font-weight: 600; }
+
+.chat-input-wrapper {
+    width: 100%;
+    min-height: 40px; 
+    height: auto; 
+    flex-shrink: 0; 
+    background-color: rgba(0, 0, 0, 0.6);
+    border-radius: 6px;
+    display: flex;
+    align-items: flex-end; 
+    padding: 10px; 
+    box-sizing: border-box;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.chat-input-box {
+    width: 100%; 
+    background: transparent; 
+    border: none; 
+    color: #ffffff;
+    font-family: 'Montserrat', Arial, sans-serif; 
+    font-size: 14px; 
+    font-weight: 500;
+    outline: none; 
+    text-shadow: 1px 1px 0 #000;
+    resize: none; 
+    overflow-y: auto; 
+    max-height: 100px; 
+    padding: 0; 
+    margin: 0;
+    line-height: 1.4;
+    word-break: break-word; 
+}
+.chat-input-box::placeholder { color: rgba(255, 255, 255, 0.4); }
+.chat-input-box::-webkit-scrollbar { width: 4px; }
+.chat-input-box::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 2px; }
+
+.char-counter {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.4);
+    margin-left: 10px;
+    margin-bottom: 2px;
+    pointer-events: none;
+    transition: color 0.2s ease;
+}
+
+.char-counter.limit-yellow { color: #fee75c !important; }
+.char-counter.limit-red { color: #fa777c !important; }
+
+.chat-send-icon { 
+    width: 20px; 
+    height: 20px; 
+    color: rgba(255, 255, 255, 0.4); 
+    cursor: pointer; 
+    transition: 0.2s; 
+    margin-left: 10px; 
+    flex-shrink: 0; 
+}
+.chat-send-icon:hover { color: #ffffff; }
+
+.app-wrapper.state-interactive .chat-input-wrapper { opacity: 1; pointer-events: auto; }

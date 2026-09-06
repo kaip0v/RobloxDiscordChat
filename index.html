@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roblox Overlay</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-wrapper" id="app-wrapper">
+        <div class="tabs-container" id="tabs-container"></div>
+
+        <div class="chats-wrapper" id="chats-wrapper"></div>
+        
+        <div class="chat-input-wrapper">
+            <textarea id="chat-input" class="chat-input-box" autocomplete="off" maxlength="256" rows="1"></textarea>
+            <span id="char-counter" class="char-counter" style="display: none;">0</span>
+            <svg id="chat-send-btn" class="chat-send-icon" viewBox="0 0 24 24">
+                <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+            </svg>
+        </div>
+
+        <div class="side-controls">
+            <div class="control-btn" id="btn-close" data-tooltip="Закрыть оверлей">X</div>
+            <div class="control-btn" id="btn-minimize" data-tooltip="Выбор чата">⇄</div>
+            <div class="control-btn" id="btn-add" data-tooltip="Добавить вкладку">+</div>
+            <div id="error-toast" class="error-toast">У вас не скопирован ID диалога</div>
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        const chatsWrapper = document.getElementById('chats-wrapper');
+        const tabsContainer = document.getElementById('tabs-container');
+        const chatInput = document.getElementById('chat-input');
+        const appWrapper = document.getElementById('app-wrapper');
+        const sendBtn = document.getElementById('chat-send-btn');
+        const charCounter = document.getElementById('char-counter');
+        
+        const openTabs = new Map();
+        let activeTabId = null;
+
+        function getActiveContainer() {
+            return document.getElementById(`tab-content-${activeTabId}`);
+        }
+
+        function updateTabsVisibility() {
+            if (openTabs.size > 1) {
+                appWrapper.classList.add('has-tabs');
+                chatsWrapper.style.borderTopLeftRadius = '0';
+                chatsWrapper.style.borderTopRightRadius = '0';
+            } else {
+                appWrapper.classList.remove('has-tabs');
+                chatsWrapper.style.borderRadius = '6px';
+            }
+        }
+
+        function switchTab(channelId) {
+            if (activeTabId === channelId) return;
+            activeTabId = channelId;
+            ipcRenderer.send('set-active-channel', channelId);
+
+            document.querySelectorAll('.tab').forEach(tab => {
+                if (tab.dataset.id === channelId) {
+                    tab.classList.add('active');
+                } else {
+                    tab.classList.remove('active');
+                }
+            });
+
+            document.querySelectorAll('.chats-wrapper .chat-container').forEach(chat => {
+                if (chat.id === `tab-content-${channelId}`) {
+                    chat.style.display = 'flex';
+                    chat.scrollTop = chat.scrollHeight; 
+                } else {
+                    chat.style.display = 'none';
+                }
+            });
+        }
+
+        function createTab(channelId, titleText) {
+            if (openTabs.has(channelId)) {
+                switchTab(channelId);
+                return;
+            }
+
+            const tabBtn = document.createElement('div');
+            tabBtn.className = 'tab';
+            tabBtn.dataset.id = channelId;
+            tabBtn.innerText = titleText;
+            tabBtn.onclick = () => switchTab(channelId);
+            tabsContainer.appendChild(tabBtn);
+
+            const chatCont = document.createElement('div');
+            chatCont.className = 'chat-container';
+            chatCont.id = `tab-content-${channelId}`;
+            chatCont.style.display = 'none';
+            chatsWrapper.appendChild(chatCont);
+
+            openTabs.set(channelId, { button: tabBtn, container: chatCont });
+            updateTabsVisibility();
+            switchTab(channelId);
+        }
+
+        document.getElementById('btn-close').addEventListener('click', () => ipcRenderer.send('close-app'));
+        document.getElementById('btn-minimize').addEventListener('click', () => ipcRenderer.send('open-setup'));
+        document.getElementById('btn-add').addEventListener('click', () => ipcRenderer.send('add-tab'));
+
+        ipcRenderer.on('tab-added', (event, newChannelId) => {
+            const shortName = 'ID: ' + newChannelId.slice(-4);
+            createTab(newChannelId, shortName);
+        });
+
+        ipcRenderer.on('add-tab-error', (event, msg) => {
+            const toast = document.getElementById('error-toast');
+            toast.innerText = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        });
+
+        const ghostInput = document.createElement('textarea');
+        ghostInput.className = 'chat-input-box';
+        ghostInput.style.position = 'absolute';
+        ghostInput.style.visibility = 'hidden';
+        ghostInput.style.pointerEvents = 'none';
+        ghostInput.style.top = '-9999px';
+        ghostInput.style.height = '0px';
+        ghostInput.style.overflow = 'hidden';
+        document.body.appendChild(ghostInput);
+
+        const processedIds = new Set();
+        let isTyping = false;
+        let isHovering = false;
+        let settings = { rpMode: true, rpColor: "#C2A2DA", shortcut: "Alt+/" };
+
+        let verifiedUsers = JSON.parse(localStorage.getItem('verifiedUsers')) || {};
+        const VERIFY_JSON_URL = 'https://raw.githubusercontent.com/kaip0v/RobloxDiscordChat/refs/heads/main/resource/verify.json';
+
+        async function fetchVerifiedUsers() {
+            try {
+                const response = await fetch(VERIFY_JSON_URL + '?t=' + new Date().getTime()); 
+                if (response.ok) {
+                    verifiedUsers = await response.json();
+                    localStorage.setItem('verifiedUsers', JSON.stringify(verifiedUsers));
+                }
+            } catch (error) {}
+        }
+        fetchVerifiedUsers();
+
+        const defaultPalette = ['#E57373', '#F06292', '#BA68C8', '#9575CD', '#7986CB', '#64B5F6', '#4DD0E1', '#4DB6AC', '#81C784', '#AED581', '#FFB74D', '#FF8A65', '#A1887F', '#90A4AE'];
+
+        function getColorForName(name) {
+            let hash = 0;
+            for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            return defaultPalette[Math.abs(hash) % defaultPalette.length];
+        }
+
+        ipcRenderer.on('apply-settings', (e, config, initialChannelId) => {
+            settings = config;
+            chatInput.placeholder = `To chat click here or press ${settings.shortcut === '/' ? '"/"' : 'Alt + /'} key`;
+
+            if (initialChannelId && !openTabs.has(initialChannelId)) {
+                createTab(initialChannelId, 'Main');
+            }
+        });
+
+        function showInteractive() { appWrapper.classList.add('state-interactive'); }
+        function hideInteractive() { appWrapper.classList.remove('state-interactive'); }
+
+        function autoResizeInput() {
+            const activeCont = getActiveContainer();
+            if(!activeCont) return;
+
+            const currentScroll = activeCont.scrollTop;
+            const isScrolledToBottom = activeCont.scrollHeight - activeCont.clientHeight <= activeCont.scrollTop + 20;
+
+            ghostInput.style.width = window.getComputedStyle(chatInput).width;
+            ghostInput.value = chatInput.value;
+            
+            chatInput.style.height = '1px'; 
+            chatInput.style.height = ghostInput.scrollHeight + 'px'; 
+
+            if (isScrolledToBottom) activeCont.scrollTop = activeCont.scrollHeight;
+            else activeCont.scrollTop = currentScroll;
+        }
+
+        function updateCounter() {
+            const len = chatInput.value.length;
+            if (len === 0) {
+                charCounter.style.display = 'none';
+            } else {
+                charCounter.style.display = 'inline';
+                charCounter.textContent = len;
+                charCounter.className = 'char-counter';
+                if (len >= 250) charCounter.classList.add('limit-red');
+                else if (len >= 200) charCounter.classList.add('limit-yellow');
+            }
+        }
+
+        chatInput.addEventListener('input', () => { updateCounter(); autoResizeInput(); });
+
+        function sendInput() {
+            const text = chatInput.value.trim();
+            if (text) ipcRenderer.send('send-message', text);
+            chatInput.value = '';
+            chatInput.style.height = '1px'; 
+            chatInput.style.height = chatInput.scrollHeight + 'px';
+            
+            const activeCont = getActiveContainer();
+            if (activeCont) activeCont.scrollTop = activeCont.scrollHeight;
+
+            updateCounter();
+            closeInput();
+        }
+
+        ipcRenderer.on('focus-input', () => { isTyping = true; showInteractive(); chatInput.focus(); });
+
+        function closeInput() {
+            isTyping = false; chatInput.blur(); ipcRenderer.send('defocus');
+            if (!isHovering) hideInteractive();
+        }
+
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { 
+                e.preventDefault(); 
+                sendInput(); 
+            } else if (e.key === 'Escape') {
+                closeInput();
+            }
+        });
+
+        sendBtn.addEventListener('click', sendInput);
+        document.addEventListener('mouseenter', () => { isHovering = true; showInteractive(); ipcRenderer.send('set-ignore-mouse', false); });
+        document.addEventListener('mouseleave', () => { isHovering = false; if (!isTyping) closeInput(); });
+        window.addEventListener('blur', () => { if (isTyping) closeInput(); });
+
+        function appendMessage(targetChannelId, author, text, color, userId, isMentioned = false, mentionsMap = {}) {
+            const container = document.getElementById(`tab-content-${targetChannelId}`);
+            if (!container) return; 
+
+            const isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 20;
+
+            const msgElement = document.createElement('div');
+            msgElement.className = 'message';
+            if (isMentioned) msgElement.classList.add('mentioned-message');
+
+            const authorSpan = document.createElement('span');
+            authorSpan.className = 'author';
+            authorSpan.style.color = color;
+            authorSpan.appendChild(document.createTextNode(author));
+
+            // Возвращена простая проверка на true для галочки
+            if (userId && verifiedUsers[userId] && verifiedUsers[userId].verified === true) {
+                const badgeImg = document.createElement('img');
+                badgeImg.src = "data:image/svg+xml;charset=utf-8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28' fill='none'><g clip-path='url(%23clip0_8_46)'><rect x='5.88818' width='22.89' height='22.89' transform='rotate(15 5.88818 0)' fill='%230066FF'/><path fill-rule='evenodd' clip-rule='evenodd' d='M20.543 8.7508L20.549 8.7568C21.15 9.3578 21.15 10.3318 20.549 10.9328L11.817 19.6648L7.45 15.2968C6.85 14.6958 6.85 13.7218 7.45 13.1218L7.457 13.1148C8.058 12.5138 9.031 12.5138 9.633 13.1148L11.817 15.2998L18.367 8.7508C18.968 8.1498 19.942 8.1498 20.543 8.7508Z' fill='white'/></g><defs><clipPath id='clip0_8_46'><rect width='28' height='28' fill='white'/></clipPath></defs></svg>";
+                badgeImg.style.width = '14px'; badgeImg.style.height = '14px'; badgeImg.style.verticalAlign = 'middle';
+                badgeImg.style.marginLeft = '4px'; badgeImg.style.marginRight = '2px'; badgeImg.style.position = 'relative'; badgeImg.style.top = '-1px';
+                authorSpan.appendChild(badgeImg);
+            }
+
+            authorSpan.appendChild(document.createTextNode(': '));
+            msgElement.appendChild(authorSpan);
+
+            let processText = text;
+            let isOOC = false;
+
+            if (settings.rpMode) {
+                if (processText.startsWith('/b ')) { processText = '// ' + processText.substring(3); isOOC = true; } 
+                else if (processText.startsWith('((')) { processText = '// ' + processText.substring(2).trimStart(); isOOC = true; } 
+                else if (processText.startsWith('//')) { isOOC = true; }
+            }
+            
+            function processAsterisks(str, fragment, allowAsterisks) {
+                if (!allowAsterisks) { fragment.appendChild(document.createTextNode(str)); return; }
+                const parts = str.split(/(\*[^*]+\*|\*.*$)/g);
+                parts.forEach(part => {
+                    if (part.startsWith('*')) {
+                        const span = document.createElement('span');
+                        span.style.color = settings.rpColor; span.textContent = part;
+                        fragment.appendChild(span);
+                    } else if (part) fragment.appendChild(document.createTextNode(part));
+                });
+            }
+
+            function parseContent(str, allowAsterisks) {
+                const fragment = document.createDocumentFragment();
+                const mentionRegex = /<@!?(\d+)>/g;
+                let lastIndex = 0; let match;
+
+                while ((match = mentionRegex.exec(str)) !== null) {
+                    if (match.index > lastIndex) processAsterisks(str.substring(lastIndex, match.index), fragment, allowAsterisks);
+                    const mentionId = match[1];
+                    const mentionName = (mentionsMap && mentionsMap[mentionId]) ? mentionsMap[mentionId] : 'User';
+                    const mentionSpan = document.createElement('span');
+                    mentionSpan.className = 'mention'; mentionSpan.textContent = '@' + mentionName;
+                    fragment.appendChild(mentionSpan);
+                    lastIndex = mentionRegex.lastIndex;
+                }
+                if (lastIndex < str.length) processAsterisks(str.substring(lastIndex), fragment, allowAsterisks);
+                return fragment;
+            }
+
+            if (settings.rpMode && !isOOC) {
+                if (processText.startsWith('/me ')) processText = '*' + processText.slice(4) + '*';
+                msgElement.appendChild(parseContent(processText, true));
+            } else if (settings.rpMode && isOOC) {
+                const span = document.createElement('span'); span.style.color = '#B2B2B2';
+                span.appendChild(parseContent(processText, false));
+                msgElement.appendChild(span);
+            } else {
+                msgElement.appendChild(parseContent(processText, false));
+            }
+
+            container.appendChild(msgElement);
+            while (container.children.length > 50) container.removeChild(container.firstChild);
+            
+            if (isScrolledToBottom && targetChannelId === activeTabId) container.scrollTop = container.scrollHeight;
+        }
+
+        ipcRenderer.on('new-message', (event, msg) => {
+            if (msg.id && processedIds.has(msg.id)) return;
+            if (msg.id) processedIds.add(msg.id);
+            if (processedIds.size > 200) { const firstItem = processedIds.values().next().value; processedIds.delete(firstItem); }
+
+            let safeText = msg.text;
+            if (safeText.length > 256) safeText = safeText.substring(0, 256);
+
+            let validColor = msg.color;
+            if (!validColor || validColor === '#ffffff' || validColor === '#000000') {
+                validColor = getColorForName(msg.author);
+            }
+
+            appendMessage(msg.channelId, msg.author, safeText, validColor, msg.userId, msg.isMentioned, msg.mentions);
+        });
+    </script>
+</body>
+</html>

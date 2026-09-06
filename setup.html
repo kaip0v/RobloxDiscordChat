@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Настройка чата</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700&display=swap');
+
+        body {
+            background-color: #2b2d31;
+            color: #f2f3f5;
+            font-family: 'Montserrat', sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        h2 { margin: 0; font-size: 20px; color: #ffffff; }
+
+        .settings-icon {
+            font-size: 22px;
+            cursor: pointer;
+            color: #b5bac1;
+            transition: color 0.2s;
+        }
+        .settings-icon:hover { color: #ffffff; }
+
+        .input-group { display: flex; gap: 10px; margin-bottom: 10px; }
+        input[type="text"] {
+            flex: 1; background-color: #1e1f22; border: 1px solid #1e1f22;
+            color: #dbdee1; padding: 10px; border-radius: 4px; font-family: 'Montserrat', sans-serif; outline: none;
+        }
+        input[type="text"]:focus { border: 1px solid #5865F2; }
+
+        button {
+            background-color: #5865F2; color: white; border: none; padding: 10px 15px;
+            border-radius: 4px; font-family: 'Montserrat', sans-serif; font-weight: 600; cursor: pointer; transition: 0.2s;
+        }
+        button:hover { background-color: #4752c4; }
+
+        .error-msg { color: #fa777c; font-size: 12px; margin-bottom: 10px; text-align: center; min-height: 15px; }
+
+        .server-list {
+            flex-grow: 1; overflow-y: auto; background-color: #232428;
+            border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 8px;
+        }
+        .server-list::-webkit-scrollbar { width: 6px; }
+        .server-list::-webkit-scrollbar-thumb { background: #1a1b1e; border-radius: 3px; }
+
+        .server-item {
+            background-color: #2b2d31; padding: 12px; border-radius: 4px;
+            display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: 0.2s;
+        }
+        .server-item:hover { background-color: #313338; }
+        .server-info { flex-grow: 1; }
+        .server-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; color: #fff; }
+        .server-id { font-size: 12px; color: #949ba4; }
+        .pinned-badge { font-size: 10px; background-color: #5865F2; padding: 2px 6px; border-radius: 8px; margin-left: 8px; }
+        
+        .delete-btn { background: none; color: #fa777c; padding: 5px; font-size: 16px; }
+        .delete-btn:hover { background-color: rgba(250, 119, 124, 0.1); }
+
+        /* Settings Modal */
+        .settings-modal {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #2b2d31; padding: 20px; box-sizing: border-box; z-index: 10; flex-direction: column;
+        }
+        .settings-modal.active { display: flex; }
+        .settings-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .settings-row label { font-size: 14px; color: #dbdee1; }
+        .settings-row select, .settings-row input[type="color"] { background: #1e1f22; color: #fff; border: none; padding: 5px; border-radius: 4px; outline: none; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h2>Установка связи</h2>
+        <div class="settings-icon" id="settings-btn">⚙️</div>
+    </div>
+    
+    <div class="input-group">
+        <input type="text" id="input-name" placeholder="Название сервера">
+        <input type="text" id="input-id" placeholder="ID канала (17-20 цифр)">
+    </div>
+    <button id="add-btn" style="width: 100%;">Добавить и сохранить</button>
+    <div id="error-text" class="error-msg"></div>
+
+    <div class="server-list" id="server-list"></div>
+
+    <!-- Modal Settings -->
+    <div class="settings-modal" id="settings-modal">
+        <div class="header">
+            <h2>Настройки</h2>
+            <div class="settings-icon" id="close-settings-btn">✖</div>
+        </div>
+        <div class="settings-row">
+            <label>Режим старого чата (квадратный)</label>
+            <input type="checkbox" id="set-old-style">
+        </div>
+        <div class="settings-row">
+            <label>Ролеплей режим (*текст*)</label>
+            <input type="checkbox" id="set-rp-mode" checked>
+        </div>
+        <div class="settings-row">
+            <label>Цвет ролеплей текста</label>
+            <input type="color" id="set-rp-color" value="#C2A2DA">
+        </div>
+        <div class="settings-row">
+            <label>Кнопка активации</label>
+            <select id="set-shortcut">
+                <option value="Alt+/">Alt + / (и Alt + .)</option>
+                <option value="/">Только /</option>
+            </select>
+        </div>
+        <button id="save-settings-btn" style="margin-top: auto;">Сохранить настройки</button>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        const PINNED_SERVER = { name: "Официальный сервер RuGv", id: "1540086276026273803", isPinned: true };
+        
+        let config = JSON.parse(localStorage.getItem('overlayConfig')) || {
+            oldChatStyle: false,
+            rpMode: true,
+            rpColor: "#C2A2DA",
+            shortcut: "Alt+/"
+        };
+
+        // Настройки логика
+        document.getElementById('settings-btn').onclick = () => {
+            document.getElementById('set-old-style').checked = config.oldChatStyle;
+            document.getElementById('set-rp-mode').checked = config.rpMode;
+            document.getElementById('set-rp-color').value = config.rpColor;
+            document.getElementById('set-shortcut').value = config.shortcut;
+            document.getElementById('settings-modal').classList.add('active');
+        };
+
+        document.getElementById('close-settings-btn').onclick = () => {
+            document.getElementById('settings-modal').classList.remove('active');
+        };
+
+        document.getElementById('save-settings-btn').onclick = () => {
+            config.oldChatStyle = document.getElementById('set-old-style').checked;
+            config.rpMode = document.getElementById('set-rp-mode').checked;
+            config.rpColor = document.getElementById('set-rp-color').value;
+            config.shortcut = document.getElementById('set-shortcut').value;
+            localStorage.setItem('overlayConfig', JSON.stringify(config));
+            document.getElementById('settings-modal').classList.remove('active');
+        };
+
+        // Сервера логика
+        function getSavedServers() { return JSON.parse(localStorage.getItem('savedDiscordServers') || '[]'); }
+        function saveServers(s) { localStorage.setItem('savedDiscordServers', JSON.stringify(s)); }
+
+        function connectToChannel(id) {
+            ipcRenderer.send('set-channel', { id: id, settings: config });
+        }
+
+        function renderList() {
+            const listEl = document.getElementById('server-list');
+            listEl.innerHTML = '';
+            [PINNED_SERVER, ...getSavedServers()].forEach((server, index) => {
+                const item = document.createElement('div');
+                item.className = 'server-item';
+                
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'server-info';
+                infoDiv.onclick = () => connectToChannel(server.id);
+                infoDiv.innerHTML = `<div class="server-name">${server.name} ${server.isPinned ? '<span class="pinned-badge">Закреплен</span>' : ''}</div>
+                                     <div class="server-id">ID: ${server.id}</div>`;
+                item.appendChild(infoDiv);
+
+                if (!server.isPinned) {
+                    const delBtn = document.createElement('button');
+                    delBtn.className = 'delete-btn';
+                    delBtn.innerHTML = '✖';
+                    delBtn.onclick = () => {
+                        const s = getSavedServers(); s.splice(index - 1, 1); saveServers(s); renderList();
+                    };
+                    item.appendChild(delBtn);
+                }
+                listEl.appendChild(item);
+            });
+        }
+
+        document.getElementById('add-btn').onclick = () => {
+            const name = document.getElementById('input-name').value.trim();
+            const id = document.getElementById('input-id').value.trim();
+            const err = document.getElementById('error-text');
+
+            if (!name) return err.innerText = "Введите название сервера!";
+            if (!/^\d{17,20}$/.test(id)) return err.innerText = "Неверный формат ID! Должно быть 17-20 цифр.";
+            
+            const servers = getSavedServers();
+            if (servers.find(s => s.id === id) || id === PINNED_SERVER.id) return err.innerText = "Канал уже в списке!";
+            
+            err.innerText = "";
+            servers.push({ name, id });
+            saveServers(servers);
+            document.getElementById('input-name').value = ''; document.getElementById('input-id').value = '';
+            renderList();
+        };
+
+        renderList();
+    </script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "name": "roblox-discord-overlay",
+  "version": "1.0.0",
+  "description": "Локальный чат-оверлей в стиле Roblox",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder -w"
+  },
+  "author": "kaip0v",
+  "license": "ISC",
+  "dependencies": {
+    "electron-updater": "^6.1.7",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.kaip0v.robloxoverlay",
+    "productName": "Roblox Overlay",
+    "win": {
+      "target": "nsis"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kaip0v",
+        "repo": "RobloxDiscordChat"
+      }
+    ]
+  }
+}

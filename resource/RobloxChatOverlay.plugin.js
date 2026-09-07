@@ -8,56 +8,60 @@
  */
 
 module.exports = class RobloxChatOverlay {
-    constructor() {
+    start() {
         this.ws = null;
         this.lastSentId = null;
         
-        // Создаем отдельные переменные для привязанных функций, чтобы не перезаписывать прототип
-        this.boundOnMessageCreate = this.onMessageCreate.bind(this);
-        this.boundOnMessageUpdate = this.onMessageUpdate.bind(this);
-        this.boundOnMessageDelete = this.onMessageDelete.bind(this);
-        this.boundOnTypingStart = this.onTypingStart.bind(this);
-    }
+        // Фиксируем контекст безопасно внутри start()
+        this.boundOnMessageCreate = (e) => this.onMessageCreate(e);
+        this.boundOnMessageUpdate = (e) => this.onMessageUpdate(e);
+        this.boundOnMessageDelete = (e) => this.onMessageDelete(e);
+        this.boundOnTypingStart = (e) => this.onTypingStart(e);
 
-    start() {
-        try {
-            this.Dispatcher = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("dispatch", "subscribe"));
-            this.MessageActions = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("sendMessage", "editMessage"));
-            this.ChannelStore = BdApi.Webpack.getStore("ChannelStore");
-            this.GuildStore = BdApi.Webpack.getStore("GuildStore");
-            this.UserStore = BdApi.Webpack.getStore("UserStore");
-            this.GuildMemberStore = BdApi.Webpack.getStore("GuildMemberStore");
-
-            this.connectWebSocket();
-
-            if (this.Dispatcher) {
-                this.Dispatcher.subscribe("MESSAGE_CREATE", this.boundOnMessageCreate);
-                this.Dispatcher.subscribe("MESSAGE_UPDATE", this.boundOnMessageUpdate);
-                this.Dispatcher.subscribe("MESSAGE_DELETE", this.boundOnMessageDelete);
-                this.Dispatcher.subscribe("TYPING_START", this.boundOnTypingStart);
-            } else {
-                console.warn("[RobloxChatOverlay] Внимание: Модуль Dispatcher не найден!");
+        // Универсальная функция поиска, неуязвимая к обновлениям API BetterDiscord
+        const getModule = (...props) => {
+            if (BdApi.Webpack && BdApi.Webpack.getModule) {
+                if (BdApi.Webpack.Filters && typeof BdApi.Webpack.Filters.byKeys === "function") {
+                    return BdApi.Webpack.getModule(BdApi.Webpack.Filters.byKeys(...props));
+                }
+                if (BdApi.Webpack.Filters && typeof BdApi.Webpack.Filters.byProps === "function") {
+                    return BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps(...props));
+                }
+                return BdApi.Webpack.getModule(m => m && props.every(p => m[p] !== undefined));
             }
-        } catch (err) {
-            console.error("[RobloxChatOverlay] Критическая ошибка при запуске:", err);
-            BdApi.showToast("Ошибка запуска плагина! Откройте консоль (Ctrl+Shift+I)", { type: "error" });
+            return BdApi.findModuleByProps(...props);
+        };
+
+        // Ищем модули через нашу безопасную обертку
+        this.Dispatcher = getModule("dispatch", "subscribe");
+        this.MessageActions = getModule("sendMessage", "editMessage");
+        this.ChannelStore = getModule("getChannel", "hasChannel");
+        this.GuildStore = getModule("getGuild", "getGuildCount");
+        this.UserStore = getModule("getUser", "getCurrentUser");
+        this.GuildMemberStore = getModule("getMember", "getMembers");
+
+        this.connectWebSocket();
+
+        if (this.Dispatcher) {
+            this.Dispatcher.subscribe("MESSAGE_CREATE", this.boundOnMessageCreate);
+            this.Dispatcher.subscribe("MESSAGE_UPDATE", this.boundOnMessageUpdate);
+            this.Dispatcher.subscribe("MESSAGE_DELETE", this.boundOnMessageDelete);
+            this.Dispatcher.subscribe("TYPING_START", this.boundOnTypingStart);
         }
+        
+        console.log("[RobloxChatOverlay] Плагин успешно запущен!");
     }
 
     stop() {
-        try {
-            if (this.ws) {
-                this.ws.close();
-                this.ws = null;
-            }
-            if (this.Dispatcher) {
-                this.Dispatcher.unsubscribe("MESSAGE_CREATE", this.boundOnMessageCreate);
-                this.Dispatcher.unsubscribe("MESSAGE_UPDATE", this.boundOnMessageUpdate);
-                this.Dispatcher.unsubscribe("MESSAGE_DELETE", this.boundOnMessageDelete);
-                this.Dispatcher.unsubscribe("TYPING_START", this.boundOnTypingStart);
-            }
-        } catch (err) {
-            console.error("[RobloxChatOverlay] Ошибка при остановке:", err);
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
+        if (this.Dispatcher) {
+            this.Dispatcher.unsubscribe("MESSAGE_CREATE", this.boundOnMessageCreate);
+            this.Dispatcher.unsubscribe("MESSAGE_UPDATE", this.boundOnMessageUpdate);
+            this.Dispatcher.unsubscribe("MESSAGE_DELETE", this.boundOnMessageDelete);
+            this.Dispatcher.unsubscribe("TYPING_START", this.boundOnTypingStart);
         }
     }
 
@@ -65,8 +69,8 @@ module.exports = class RobloxChatOverlay {
         if (this.ws && this.ws.readyState !== WebSocket.CLOSED) return;
 
         this.ws = new WebSocket("ws://127.0.0.1:37485");
-        this.ws.onopen = () => console.log("[RobloxChatOverlay] WebSocket успешно подключен");
-        this.ws.onerror = (err) => console.error("[RobloxChatOverlay] Ошибка WebSocket:", err);
+        this.ws.onopen = () => console.log("[RobloxChatOverlay] WebSocket подключен");
+        this.ws.onerror = () => {};
         this.ws.onclose = () => setTimeout(() => this.connectWebSocket(), 5000);
 
         this.ws.onmessage = (event) => {
@@ -80,9 +84,7 @@ module.exports = class RobloxChatOverlay {
                         {}
                     );
                 }
-            } catch (err) {
-                console.error("[RobloxChatOverlay] Ошибка обработки сообщения WebSocket:", err);
-            }
+            } catch (err) {}
         };
     }
 
@@ -168,12 +170,10 @@ module.exports = class RobloxChatOverlay {
 
     onMessageCreate(event) { this.processMessageAndSend(event, "MESSAGE_CREATE"); }
     onMessageUpdate(event) { this.processMessageAndSend(event, "MESSAGE_UPDATE"); }
-
     onMessageDelete(event) {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
         this.ws.send(JSON.stringify({ action: "MESSAGE_DELETE", id: event.id, channelId: event.channelId }));
     }
-
     onTypingStart(event) {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
         const user = this.UserStore ? this.UserStore.getUser(event.userId) : null;

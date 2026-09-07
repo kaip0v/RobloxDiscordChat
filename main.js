@@ -15,33 +15,29 @@ let currentSettings = null;
 
 const configPath = path.join(app.getPath('userData'), 'roblox_overlay_config.json');
 
-// Автоматическая загрузка плагина для Vencord
-function installVencordPlugin() {
+function installBDPlugin() {
     const appData = process.env.APPDATA || (process.platform === 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME + '/.config');
-    const pluginDir = path.join(appData, 'Vencord', 'settings', 'userplugins');
-    const pluginPath = path.join(pluginDir, 'robloxOverlay.ts');
-    const pluginUrl = 'https://raw.githubusercontent.com/kaip0v/RobloxDiscordChat/refs/heads/main/resource/robloxOverlay.ts';
+    const pluginDir = path.join(appData, 'BetterDiscord', 'plugins');
+    const pluginPath = path.join(pluginDir, 'RobloxChatOverlay.plugin.js');
+    const pluginUrl = 'https://raw.githubusercontent.com/kaip0v/RobloxDiscordChat/main/resource/RobloxChatOverlay.plugin.js?t=' + Date.now();
 
     if (!fs.existsSync(pluginDir)) {
-        try {
-            fs.mkdirSync(pluginDir, { recursive: true });
-        } catch (err) {
-            console.error('Ошибка создания директории плагинов:', err);
-            return;
-        }
+        try { fs.mkdirSync(pluginDir, { recursive: true }); } 
+        catch (err) { return; }
+    }
+
+    if (fs.existsSync(pluginPath)) {
+        return;
     }
 
     const file = fs.createWriteStream(pluginPath);
-    https.get(pluginUrl, (response) => {
+    const options = { headers: { 'User-Agent': 'RobloxChatOverlay-Updater' } };
+
+    https.get(pluginUrl, options, (response) => {
+        if (response.statusCode !== 200) return;
         response.pipe(file);
-        file.on('finish', () => {
-            file.close();
-            console.log('Плагин Vencord успешно скачан/обновлен.');
-        });
-    }).on('error', (err) => {
-        fs.unlink(pluginPath, () => {});
-        console.error('Ошибка скачивания плагина:', err.message);
-    });
+        file.on('finish', () => file.close());
+    }).on('error', () => fs.unlink(pluginPath, () => {}));
 }
 
 function loadSavedConfig() {
@@ -55,9 +51,7 @@ function loadSavedConfig() {
                 return true;
             }
         }
-    } catch (err) {
-        console.error('Ошибка загрузки конфига:', err);
-    }
+    } catch (err) {}
     return false;
 }
 
@@ -67,9 +61,7 @@ function saveCurrentConfig() {
             savedMainChannelId, 
             settings: currentSettings 
         }));
-    } catch (err) {
-        console.error('Ошибка сохранения конфига:', err);
-    }
+    } catch (err) {}
 }
 
 function createSetupWindow() {
@@ -147,12 +139,16 @@ function registerShortcuts() {
 
 function startWebSocketServer() {
     if (wss) return; 
-    
     wss = new WebSocket.Server({ host: '127.0.0.1', port: 37485 }); 
     
     wss.on('connection', (ws) => {
         ws.on('message', (data) => {
             const message = JSON.parse(data);
+            
+            if (message.action !== "TYPING_START") {
+                console.log(`[WS] Discord -> Оверлей | Действие: ${message.action} | Текст: ${message.text || '[Без текста]'}`);
+            }
+
             if (mainWindow) {
                 mainWindow.webContents.send('new-message', message);
             }
@@ -161,12 +157,8 @@ function startWebSocketServer() {
 }
 
 app.whenReady().then(() => {
-    // Скачиваем/обновляем плагин Vencord при запуске
-    installVencordPlugin();
-    
-    // Проверка обновлений оверлея
+    installBDPlugin();
     autoUpdater.checkForUpdatesAndNotify();
-
     startWebSocketServer();
     if (loadSavedConfig()) {
         createOverlayWindow();
@@ -194,6 +186,18 @@ ipcMain.on('send-message', (event, text) => {
             action: "SEND_MESSAGE",
             channelId: activeChannelId,
             text: text
+        });
+        wss.clients.forEach(client => {
+            if (client.readyState === 1) client.send(payload);
+        });
+    }
+});
+
+ipcMain.on('open-dm', (event, userId) => {
+    if (wss) {
+        const payload = JSON.stringify({
+            action: "OPEN_DM",
+            userId: userId
         });
         wss.clients.forEach(client => {
             if (client.readyState === 1) client.send(payload);

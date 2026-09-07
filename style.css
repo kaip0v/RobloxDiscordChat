@@ -104,15 +104,14 @@ body, html {
     align-items: center;
     font-weight: bold;
     cursor: pointer;
-    position: relative; /* Необходимо для работы тултипов */
+    position: relative;
     transition: 0.2s;
 }
 
-/* === Кастомные подсказки (Тултипы) === */
 .control-btn::after {
     content: attr(data-tooltip);
     position: absolute;
-    right: calc(100% + 10px); /* Появляются слева от кнопки */
+    right: calc(100% + 10px); 
     background-color: rgba(0, 0, 0, 0.8);
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: #ffffff;
@@ -131,7 +130,6 @@ body, html {
     opacity: 1;
     transform: translateX(0);
 }
-/* ===================================== */
 
 .control-btn:hover { background-color: rgba(255, 255, 255, 0.2); }
 .control-btn#btn-close:hover { background-color: #ff3b3b; border-color: #ff3b3b; }
@@ -193,7 +191,17 @@ body, html {
     font-weight: 600;
 }
 
-.author { font-weight: 600; }
+.author { 
+    font-weight: 600; 
+}
+.author.clickable { 
+    cursor: pointer; 
+    transition: 0.2s ease; 
+}
+.author.clickable:hover { 
+    filter: brightness(1.2); 
+    text-decoration: underline; 
+}
 
 .chat-input-wrapper {
     width: 100%;

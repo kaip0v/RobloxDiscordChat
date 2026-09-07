@@ -1,8 +1,8 @@
 /**
  * @name RobloxChatOverlay
  * @author rrt
- * @description Local chat for Roblox. Creator: telegram @greenville
- * @version 1.0.0
+ * @description Локальный чат для Roblox с поддержкой перехода в ЛС и резервной отправкой. Creator: telegram @greenville
+ * @version 1.0.1
  * @authorId 507204871200571392
  * @source https://github.com/kaip0v/RobloxDiscordChat
  */
@@ -30,20 +30,26 @@ module.exports = class RobloxChatOverlay {
             return BdApi.findModuleByProps(...props);
         };
 
-        this.Dispatcher = getModule("dispatch", "subscribe");
         this.MessageActions = getModule("sendMessage", "editMessage");
         this.ChannelStore = getModule("getChannel", "hasChannel");
         this.GuildStore = getModule("getGuild", "getGuildCount");
         this.UserStore = getModule("getUser", "getCurrentUser");
         this.GuildMemberStore = getModule("getMember", "getMembers");
+        
+        this.PrivateChannelActions = getModule("openPrivateChannel");
+        this.NavigationUtils = getModule("transitionTo");
+        this.HTTP = getModule("get", "post", "put", "patch");
 
         this.connectWebSocket();
 
-        if (this.Dispatcher) {
+        // Надежный метод извлечения из кэша (без лишнего мусора)
+        if (this.ChannelStore && this.ChannelStore._dispatcher) {
+            this.Dispatcher = this.ChannelStore._dispatcher;
             this.Dispatcher.subscribe("MESSAGE_CREATE", this.boundOnMessageCreate);
             this.Dispatcher.subscribe("MESSAGE_UPDATE", this.boundOnMessageUpdate);
             this.Dispatcher.subscribe("MESSAGE_DELETE", this.boundOnMessageDelete);
             this.Dispatcher.subscribe("TYPING_START", this.boundOnTypingStart);
+            console.log("[RobloxChatOverlay] ПЛАГИН ЗАПУЩЕН! Успешное подключение к системному диспетчеру.");
         }
     }
 
@@ -64,20 +70,38 @@ module.exports = class RobloxChatOverlay {
         if (this.ws && this.ws.readyState !== WebSocket.CLOSED) return;
 
         this.ws = new WebSocket("ws://127.0.0.1:37485");
-        this.ws.onopen = () => console.log("[RobloxChatOverlay] WebSocket подключен");
         this.ws.onerror = () => {};
         this.ws.onclose = () => setTimeout(() => this.connectWebSocket(), 5000);
 
         this.ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                if (data.action === "SEND_MESSAGE" && data.channelId && data.text && this.MessageActions) {
-                    this.MessageActions.sendMessage(
-                        data.channelId,
-                        { content: data.text, invalidEmojis: [], validNonShortcutEmojis: [], tts: false },
-                        undefined,
-                        {}
-                    );
+                
+                if (data.action === "SEND_MESSAGE" && data.channelId && data.text) {
+                    try {
+                        if (this.MessageActions) {
+                            this.MessageActions.sendMessage(
+                                data.channelId,
+                                { content: data.text, invalidEmojis: [], validNonShortcutEmojis: [], tts: false },
+                                undefined,
+                                {}
+                            );
+                        }
+                    } catch (err) {
+                        if (this.HTTP) {
+                            this.HTTP.post({
+                                url: `/channels/${data.channelId}/messages`,
+                                body: { content: data.text }
+                            }).catch(() => {});
+                        }
+                    }
+                }
+
+                if (data.action === "OPEN_DM" && data.userId && this.PrivateChannelActions && this.NavigationUtils) {
+                    Promise.resolve(this.PrivateChannelActions.openPrivateChannel(data.userId))
+                        .then(channelId => {
+                            if (channelId) this.NavigationUtils.transitionTo(`/channels/@me/${channelId}`);
+                        }).catch(() => {});
                 }
             } catch (err) {}
         };
@@ -85,13 +109,10 @@ module.exports = class RobloxChatOverlay {
 
     processMessageAndSend(event, actionType) {
         try {
-            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
             const message = event.message || event;
             if (!message || !message.id) return;
-            
-            // Игнорируем локальное "эхо" отправки сообщения, ждем ответа от сервера
             if (message.state === "SENDING" && actionType === "MESSAGE_CREATE") return;
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
             if (actionType === "MESSAGE_CREATE") {
                 if (message.id === this.lastSentId) return;
@@ -112,7 +133,6 @@ module.exports = class RobloxChatOverlay {
             const authorObj = message.author || (message.member && message.member.user) || {};
             let authorName = message.member?.nick || authorObj.global_name || authorObj.globalName || authorObj.username || "Unknown";
 
-            // Безопасное получение цвета роли
             if (guildId && authorObj.id && this.GuildMemberStore) {
                 const member = this.GuildMemberStore.getMember(guildId, authorObj.id);
                 if (member && member.colorString) roleColor = member.colorString;
@@ -163,9 +183,8 @@ module.exports = class RobloxChatOverlay {
                 attachments: attachments,
                 replyTo: replyData
             }));
-        } catch (err) {
-            console.error("[RobloxChatOverlay] Ошибка чтения сообщения:", err);
-        }
+
+        } catch (err) {}
     }
 
     onMessageCreate(event) { this.processMessageAndSend(event, "MESSAGE_CREATE"); }

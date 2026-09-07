@@ -1,7 +1,7 @@
 /**
  * @name RobloxChatOverlay
  * @author rrt
- * @description Локальный чат-оверлей в стиле Roblox. 📂 GitHub: github.com/kaip0v/RobloxDiscordChat | 💬 Telegram: @greenville
+ * @description Local chat for Roblox. Creator: telegram @greenville
  * @version 1.0.0
  * @authorId 507204871200571392
  * @source https://github.com/kaip0v/RobloxDiscordChat

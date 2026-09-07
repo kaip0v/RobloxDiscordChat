@@ -12,13 +12,11 @@ module.exports = class RobloxChatOverlay {
         this.ws = null;
         this.lastSentId = null;
         
-        // Фиксируем контекст безопасно внутри start()
         this.boundOnMessageCreate = (e) => this.onMessageCreate(e);
         this.boundOnMessageUpdate = (e) => this.onMessageUpdate(e);
         this.boundOnMessageDelete = (e) => this.onMessageDelete(e);
         this.boundOnTypingStart = (e) => this.onTypingStart(e);
 
-        // Универсальная функция поиска, неуязвимая к обновлениям API BetterDiscord
         const getModule = (...props) => {
             if (BdApi.Webpack && BdApi.Webpack.getModule) {
                 if (BdApi.Webpack.Filters && typeof BdApi.Webpack.Filters.byKeys === "function") {
@@ -32,7 +30,6 @@ module.exports = class RobloxChatOverlay {
             return BdApi.findModuleByProps(...props);
         };
 
-        // Ищем модули через нашу безопасную обертку
         this.Dispatcher = getModule("dispatch", "subscribe");
         this.MessageActions = getModule("sendMessage", "editMessage");
         this.ChannelStore = getModule("getChannel", "hasChannel");
@@ -48,8 +45,6 @@ module.exports = class RobloxChatOverlay {
             this.Dispatcher.subscribe("MESSAGE_DELETE", this.boundOnMessageDelete);
             this.Dispatcher.subscribe("TYPING_START", this.boundOnTypingStart);
         }
-        
-        console.log("[RobloxChatOverlay] Плагин успешно запущен!");
     }
 
     stop() {
@@ -89,83 +84,88 @@ module.exports = class RobloxChatOverlay {
     }
 
     processMessageAndSend(event, actionType) {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        try {
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-        const message = event.message || event;
-        if (!message || !message.id) return;
-        if (message.state === "SENDING" && actionType === "MESSAGE_CREATE") return;
+            const message = event.message || event;
+            if (!message || !message.id) return;
+            
+            // Игнорируем локальное "эхо" отправки сообщения, ждем ответа от сервера
+            if (message.state === "SENDING" && actionType === "MESSAGE_CREATE") return;
 
-        if (actionType === "MESSAGE_CREATE") {
-            if (message.id === this.lastSentId) return;
-            this.lastSentId = message.id;
+            if (actionType === "MESSAGE_CREATE") {
+                if (message.id === this.lastSentId) return;
+                this.lastSentId = message.id;
+            }
+
+            const channel = this.ChannelStore ? this.ChannelStore.getChannel(message.channel_id) : null;
+            const guildId = channel ? channel.guild_id : null;
+            let roleColor = "#ffffff";
+            let serverName = "Direct Message";
+            
+            if (guildId && this.GuildStore) {
+                const guild = this.GuildStore.getGuild(guildId);
+                if (guild) serverName = guild.name;
+            }
+            let channelName = channel ? channel.name : "Unknown Channel";
+
+            const authorObj = message.author || (message.member && message.member.user) || {};
+            let authorName = message.member?.nick || authorObj.global_name || authorObj.globalName || authorObj.username || "Unknown";
+
+            // Безопасное получение цвета роли
+            if (guildId && authorObj.id && this.GuildMemberStore) {
+                const member = this.GuildMemberStore.getMember(guildId, authorObj.id);
+                if (member && member.colorString) roleColor = member.colorString;
+            } else if (message.colorString) {
+                roleColor = message.colorString;
+            }
+
+            const currentUser = this.UserStore ? this.UserStore.getCurrentUser() : null;
+            const currentUserId = currentUser ? currentUser.id : null;
+
+            let isMentioned = false;
+            const mentionsMap = {};
+
+            if (message.mentions && Array.isArray(message.mentions)) {
+                message.mentions.forEach((user) => {
+                    if (user.id === currentUserId) isMentioned = true;
+                    let name = user.global_name || user.username;
+                    if (guildId && this.GuildMemberStore) {
+                        const member = this.GuildMemberStore.getMember(guildId, user.id);
+                        if (member && member.nick) name = member.nick;
+                    }
+                    mentionsMap[user.id] = name;
+                });
+            }
+
+            const attachments = message.attachments ? message.attachments.map(att => att.url) : [];
+            let replyData = null;
+            if (message.referenced_message) {
+                replyData = {
+                    id: message.referenced_message.id,
+                    author: message.referenced_message.author?.username || "Unknown",
+                    text: message.referenced_message.content || ""
+                };
+            }
+
+            this.ws.send(JSON.stringify({
+                action: actionType,
+                id: message.id,
+                channelId: message.channel_id,
+                channelName: channelName,
+                serverName: serverName,
+                author: authorName,
+                userId: authorObj.id,
+                color: roleColor,
+                text: message.content || "",
+                isMentioned: isMentioned,
+                mentions: mentionsMap,
+                attachments: attachments,
+                replyTo: replyData
+            }));
+        } catch (err) {
+            console.error("[RobloxChatOverlay] Ошибка чтения сообщения:", err);
         }
-
-        const channel = this.ChannelStore ? this.ChannelStore.getChannel(message.channel_id) : null;
-        const guildId = channel ? channel.guild_id : null;
-        let roleColor = "#ffffff";
-        let serverName = "Direct Message";
-        
-        if (guildId && this.GuildStore) {
-            const guild = this.GuildStore.getGuild(guildId);
-            if (guild) serverName = guild.name;
-        }
-        let channelName = channel ? channel.name : "Unknown Channel";
-
-        if (guildId && message.author?.id && this.GuildMemberStore) {
-            const member = this.GuildMemberStore.getMember(guildId, message.author.id);
-            if (member && member.colorString) roleColor = member.colorString;
-        } else if (message.member && message.member.colorString) {
-            roleColor = message.member.colorString;
-        } else if (message.colorString) {
-            roleColor = message.colorString;
-        }
-
-        const authorObj = message.author || (message.member && message.member.user) || {};
-        let authorName = message.member?.nick || authorObj.global_name || authorObj.globalName || authorObj.username || "Unknown";
-
-        const currentUser = this.UserStore ? this.UserStore.getCurrentUser() : null;
-        const currentUserId = currentUser ? currentUser.id : null;
-
-        let isMentioned = false;
-        const mentionsMap = {};
-
-        if (message.mentions && Array.isArray(message.mentions)) {
-            message.mentions.forEach((user) => {
-                if (user.id === currentUserId) isMentioned = true;
-                let name = user.global_name || user.username;
-                if (guildId && this.GuildMemberStore) {
-                    const member = this.GuildMemberStore.getMember(guildId, user.id);
-                    if (member && member.nick) name = member.nick;
-                }
-                mentionsMap[user.id] = name;
-            });
-        }
-
-        const attachments = message.attachments ? message.attachments.map(att => att.url) : [];
-        let replyData = null;
-        if (message.referenced_message) {
-            replyData = {
-                id: message.referenced_message.id,
-                author: message.referenced_message.author?.username || "Unknown",
-                text: message.referenced_message.content || ""
-            };
-        }
-
-        this.ws.send(JSON.stringify({
-            action: actionType,
-            id: message.id,
-            channelId: message.channel_id,
-            channelName: channelName,
-            serverName: serverName,
-            author: authorName,
-            userId: authorObj.id,
-            color: roleColor,
-            text: message.content || "",
-            isMentioned: isMentioned,
-            mentions: mentionsMap,
-            attachments: attachments,
-            replyTo: replyData
-        }));
     }
 
     onMessageCreate(event) { this.processMessageAndSend(event, "MESSAGE_CREATE"); }
